@@ -1,0 +1,47 @@
+---
+- name: Login to mattermost API
+  ansible.builtin.uri:
+    url: "{{ mattermost_url }}/api/v4/users/login"
+    method: POST
+    body:
+      login_id: "{{ mattermost_user }}"
+      password: "{{ mattermost_password }}"
+    body_format: json
+    status_code: 200
+    return_content: true
+    headers:
+      Content-Type: application/json
+  register: login_response
+
+- name: Extract Bearer Token
+  ansible.builtin.set_fact:
+    bearer_token: "{{ login_response.token }}"
+
+- name: Read Playbook Data from File
+  ansible.builtin.set_fact:
+    playbook_data: "{{ lookup('file', mattermost_playbook_json) | from_json }}"
+
+- name: Get Team IDs
+  ansible.builtin.uri:
+    url: "{{ mattermost_url }}/api/v4/teams"
+    method: GET
+    status_code: 200
+    headers:
+      Authorization: Bearer {{ bearer_token }}
+  register: teams_response
+
+- name: Extract IDs
+  ansible.builtin.set_fact:
+    teams_list: "{{ teams_response.json | json_query('[].id') }}"
+
+- name: Set default Incident Response Plan for each team
+  ansible.builtin.uri:
+    url: "{{ mattermost_url }}/plugins/playbooks/api/v0/playbooks/import?team_id={{ item }}"
+    method: POST
+    body: "{{ playbook_data | to_json }}"
+    status_code: 200, 201
+    follow_redirects: all
+    headers:
+      Content-Type: application/json
+      Authorization: Bearer {{ bearer_token }}
+  loop: "{{ teams_list }}"
